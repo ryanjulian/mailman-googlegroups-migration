@@ -54,3 +54,9 @@ docs/_build/
 
 # Secrets
 client_secrets*.json
+
+# Credential files
+*.dat
+
+# Temporary files
+*.swp

@@ -28,8 +28,8 @@ by running:
 
 __author__ = 'Ryan Julian <ryanjulian@pioneers.berkeley.edu>'
 
-from optparse import OptionParser
 import os
+from argparse import ArgumentParser
 
 import pprint
 import sys
@@ -37,13 +37,17 @@ from apiclient.discovery import build
 import httplib2
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
-from oauth2client.tools import run
+from oauth2client import tools
 
 # CLIENT_SECRETS, name of a file containing the OAuth 2.0 information for this
 # application, including client_id and client_secret, which are found
 # on the API Access tab on the Google APIs
 # Console <http://code.google.com/apis/console>
 CLIENT_SECRETS = 'client_secrets.json'
+
+# CREDENTIAL_FILE, name of a file where the script will automatically store
+# OAuth 2.0 credentials obtained during the authorization process.
+CREDENTIAL_FILE = 'migrate_credentials.dat'
 
 # Helpful message to display in the browser if the CLIENT_SECRETS file
 # is missing.
@@ -102,12 +106,12 @@ def main(argv):
   """Migrates email messages from Mailman mbox archives to Google Group using 
      the Groups Migration API."""
   usage = 'usage: %prog [options]'
-  parser = OptionParser(usage=usage)
-  parser.add_option('--group',
-                    help='Group email address')
-  (options, args) = parser.parse_args()
-
-  if options.group is None:
+  parser = ArgumentParser(parents=[tools.argparser], usage=usage)
+  parser.add_argument('--group',
+                      help='Group email address')
+  args = parser.parse_args()
+  
+  if args.group is None:
     print 'Give the address of the group'
     parser.print_help()
     return
@@ -119,20 +123,20 @@ def main(argv):
       scope='https://www.googleapis.com/auth/apps.groups.migration',
       message=MISSING_CLIENT_SECRETS_MESSAGE)
 
-  storage = Storage('groupsettings.dat')
+  storage = Storage(CREDENTIAL_FILE)
   credentials = storage.get()
 
   if credentials is None or credentials.invalid:
     print 'invalid credentials'
     # Save the credentials in storage to be used in subsequent runs.
-    credentials = run(FLOW, storage)
+    credentials = tools.run_flow(FLOW, storage, args)
 
   # Create an httplib2.Http object to handle our HTTP requests and authorize it
   # with our good Credentials.
   http = httplib2.Http()
   http = credentials.authorize(http)
 
-  service = build('groupssettings', 'v1', http=http)
+  #service = build('groupssettings', 'v1', http=http)
 
   #access_settings(service=service, groupId=options.groupId, settings=settings)
 
