@@ -53,4 +53,4 @@ coverage.xml
 docs/_build/
 
 # Secrets
-client_secret*.json
+client_secrets*.json
