@@ -30,9 +30,11 @@ __author__ = 'Ryan Julian <ryanjulian@pioneers.berkeley.edu>'
 
 import os
 from argparse import ArgumentParser
+from mailbox import mbox
 
 import pprint
 import sys
+import logging
 from apiclient.discovery import build
 import httplib2
 from oauth2client.client import flow_from_clientsecrets
@@ -105,16 +107,14 @@ def access_settings(service, groupId, settings):
 def main(argv):
   """Migrates email messages from Mailman mbox archives to Google Group using 
      the Groups Migration API."""
-  usage = 'usage: %prog [options]'
-  parser = ArgumentParser(parents=[tools.argparser], usage=usage)
+  parser = ArgumentParser(parents=[tools.argparser])
   parser.add_argument('--group',
-                      help='Group email address')
+                      help='Group email address',
+                      required=True)
+  parser.add_argument('--archive',
+                      help='Mailman archive file (.mbox)',
+                      required=True)
   args = parser.parse_args()
-  
-  if args.group is None:
-    print 'Give the address of the group'
-    parser.print_help()
-    return
 
   settings = {}
 
@@ -135,6 +135,13 @@ def main(argv):
   # with our good Credentials.
   http = httplib2.Http()
   http = credentials.authorize(http)
+
+  # Load the archive file
+  logger = logging.getLogger(__name__)
+  logger.info('Importing mbox file %s...', args.archive)
+  archive = mbox(args.archive)
+
+  logger.debug('%s contains %d messages.', len(archive))
 
   #service = build('groupssettings', 'v1', http=http)
 
