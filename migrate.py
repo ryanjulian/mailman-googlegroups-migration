@@ -31,11 +31,15 @@ __author__ = 'Ryan Julian <ryanjulian@pioneers.berkeley.edu>'
 import os
 from argparse import ArgumentParser
 from mailbox import mbox
+import click
+import time
+import threading
 
 import pprint
 import sys
 import logging
 from apiclient.discovery import build
+from apiclient.http import MediaInMemoryUpload
 import httplib2
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
@@ -64,6 +68,31 @@ found at:
 with information from the APIs Console <https://code.google.com/apis/console>.
 
 """ % os.path.join(os.path.dirname(__file__), CLIENT_SECRETS)
+
+#make it work nice across threads
+def rate_limited(max_per_second):
+  '''
+  Decorator that make functions not be called faster than
+  '''
+  lock = threading.Lock()
+  minInterval = 1.0 / float(max_per_second)
+  def decorate(func):
+    lastTimeCalled = [0.0]
+    def rateLimitedFunction(args,*kargs):
+      lock.acquire()
+      elapsed = time.clock() - lastTimeCalled[0]
+      leftToWait = minInterval - elapsed
+
+      if leftToWait>0:
+        time.sleep(leftToWait)
+
+      lock.release()
+
+      ret = func(args,*kargs)
+      lastTimeCalled[0] = time.clock()
+      return ret
+    return rateLimitedFunction
+  return decorate
 
 
 def main(argv):
@@ -112,10 +141,23 @@ def main(argv):
   service = build('groupsmigration', 'v1', http=http)
   archive = service.archive()
   
-  for msg in messages:
-    logger.info('Uploading "%s"...', msg['subject'])
-    import pdb; pdb.set_trace()
-    archive.insert(groupId=args.group, body=msg.as_string())  
+  @rate_limited(10)
+  def show_subject(msg):
+    if msg is not None:
+      return '%s' % msg['subject'][:39]
+
+  with click.progressbar(messages,
+                         label='Migrating %s' % os.path.basename(args.mbox), 
+                         fill_char=click.style('#', fg='green'),
+                         show_pos=True,
+                         item_show_func=show_subject) as msgs:
+    for msg in msgs:
+      media = MediaInMemoryUpload(msg.as_string(), mimetype='message/rfc822')
+      result = archive.insert(groupId=args.group, media_body=media).execute()
+      if result['responseCode'] != 'SUCCESS':
+        logger.error('Message failed!')
+        logger.error('Subject: "%s"', msg['subject'])
+        logger.error('Response: "%s"', result)
 
 if __name__ == '__main__':
   main(sys.argv)
