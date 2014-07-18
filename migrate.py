@@ -147,7 +147,7 @@ def main(argv):
   @rate_limited(MAX_QPS)
   def show_subject(msg):
     if msg is not None:
-      return '%s' % msg['subject']
+      return '%s' % msg['subject'][:40]
 
   with click.progressbar(messages,
                          label='Migrating %s' % os.path.basename(args.mbox), 
