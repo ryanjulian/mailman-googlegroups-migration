@@ -45,6 +45,9 @@ from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
 from oauth2client import tools
 
+# MAX_QPS, the maximum queries per second allowed by the API
+MAX_QPS = 10
+
 # CLIENT_SECRETS, name of a file containing the OAuth 2.0 information for this
 # application, including client_id and client_secret, which are found
 # on the API Access tab on the Google APIs
@@ -141,10 +144,10 @@ def main(argv):
   service = build('groupsmigration', 'v1', http=http)
   archive = service.archive()
   
-  @rate_limited(10)
+  @rate_limited(MAX_QPS)
   def show_subject(msg):
     if msg is not None:
-      return '%s' % msg['subject'][:39]
+      return '%s' % msg['subject']
 
   with click.progressbar(messages,
                          label='Migrating %s' % os.path.basename(args.mbox), 
