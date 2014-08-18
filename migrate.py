@@ -34,12 +34,15 @@ from mailbox import mbox
 import click
 import time
 import threading
+from itertools import islice
 
 import pprint
 import sys
 import logging
 from apiclient.discovery import build
 from apiclient.http import MediaInMemoryUpload
+from apiclient.errors import MediaUploadSizeError
+from apiclient.errors import HttpError
 import httplib2
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.file import Storage
@@ -72,7 +75,7 @@ with information from the APIs Console <https://code.google.com/apis/console>.
 
 """ % os.path.join(os.path.dirname(__file__), CLIENT_SECRETS)
 
-#make it work nice across threads
+# Rate limiting decorator
 def rate_limited(max_per_second):
   '''
   Decorator that make functions not be called faster than
@@ -97,6 +100,15 @@ def rate_limited(max_per_second):
     return rateLimitedFunction
   return decorate
 
+# Helper for progress bar
+def show_subject(msg):
+  if msg is not None:
+    return '%s' % msg['subject'][:39]
+
+# Helper for media upload
+@rate_limited(MAX_QPS)
+def qps_limit(item):
+  return item
 
 def main(argv):
   """Migrates email messages from Mailman mbox archives to Google Group using 
@@ -108,6 +120,10 @@ def main(argv):
   parser.add_argument('--mbox',
                       help='Mailman archive file (.mbox)',
                       required=True)
+  parser.add_argument('--resume',
+                      type=int,
+                      default=1,
+                      help='Resume from the specified offset')
   args = parser.parse_args()
   
   # Setup logging
@@ -144,23 +160,31 @@ def main(argv):
   service = build('groupsmigration', 'v1', http=http)
   archive = service.archive()
   
-  @rate_limited(MAX_QPS)
-  def show_subject(msg):
-    if msg is not None:
-      return '%s' % msg['subject'][:40]
-
+  # Upload messages
+  remaining_messages = islice(iter(messages), args.resume-1, None) # Only process messages after the resume point (if any)
   with click.progressbar(messages,
                          label='Migrating %s' % os.path.basename(args.mbox), 
                          fill_char=click.style('#', fg='green'),
                          show_pos=True,
                          item_show_func=show_subject) as msgs:
+    pos = 1
     for msg in msgs:
-      media = MediaInMemoryUpload(msg.as_string(), mimetype='message/rfc822')
-      result = archive.insert(groupId=args.group, media_body=media).execute()
-      if result['responseCode'] != 'SUCCESS':
-        logger.error('Message failed!')
-        logger.error('Subject: "%s"', msg['subject'])
-        logger.error('Response: "%s"', result)
+      if pos < args.resume:
+        continue
+
+      try:
+        media = MediaInMemoryUpload(msg.as_string(), mimetype='message/rfc822')
+        result = qps_limit(archive.insert(groupId=args.group, media_body=media).execute())
+        if result['responseCode'] != 'SUCCESS':
+          logger.error('Message %d failed!', pos)
+          logger.error('Subject: "%s"', msg['subject'])
+          logger.error('Response: "%s"', result)
+      except Exception, e:
+          logger.error('Message %d failed!', pos)
+          logger.error('Subject: "%s"', msg['subject'])
+          logger.error('Response: %s', e)
+
+      pos = pos + 1
 
 if __name__ == '__main__':
   main(sys.argv)
